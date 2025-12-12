@@ -3,28 +3,34 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
-import os # <--- NOWY IMPORT, NIEZBĘDNY!
+import os
 
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Klub Książki DLR Łódź", page_icon="📚")
 st.title("📚 Klub Książki DLR Łódź")
 
-# --- ŁĄCZENIE Z GOOGLE SHEETS (POPRAWIONE) ---
+# --- ŁĄCZENIE Z GOOGLE SHEETS (POPRAWIONE PRZEZ PYTHAGORASA) ---
 @st.cache_resource
 def polacz_z_arkuszem():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
     try:
-        # NOWA LOGIKA: Najpierw sprawdzamy, czy plik istnieje fizycznie (Lokalnie)
+        # 1. LOKALNIE: Sprawdzamy czy plik fizyczny istnieje
         if os.path.exists("tajne_hasla.json"):
             creds = ServiceAccountCredentials.from_json_keyfile_name("tajne_hasla.json", scope)
         
-        # Jeśli pliku nie ma, zakładamy, że jesteśmy w chmurze (Streamlit Cloud)
-        else:
-            dane_json = json.loads(st.secrets["connections"]["plik_json"])
+        # 2. CHMURA (Streamlit Cloud): Czytamy z Secrets
+        # UWAGA: Tutaj była zmiana - dopasowanie do klucza 'gcp_json'
+        elif "gcp_json" in st.secrets:
+            dane_json = json.loads(st.secrets["gcp_json"])
             creds = ServiceAccountCredentials.from_json_keyfile_dict(dane_json, scope)
             
+        else:
+            st.error("Nie znaleziono pliku 'tajne_hasla.json' ani sekcji 'gcp_json' w Secrets.")
+            return None
+
         client = gspread.authorize(creds)
+        # Upewnij się, że taki arkusz istnieje na Twoim Google Drive!
         sheet = client.open("KlubKsiazkiDB").sheet1
         return sheet
         
@@ -32,13 +38,13 @@ def polacz_z_arkuszem():
         st.error(f"BŁĄD POŁĄCZENIA: {e}")
         return None
 
-# Reszta kodu bez zmian...
+# --- RESZTA TWOJEGO KODU (BEZ ZMIAN) ---
 arkusz = polacz_z_arkuszem()
 
 if arkusz is None:
     st.stop()
 
-# --- DALSZA CZĘŚĆ KODU (LOGIKA APLIKACJI) ---
+# --- LOGIKA APLIKACJI ---
 try:
     dane = arkusz.get_all_records()
 except Exception:
@@ -67,7 +73,7 @@ if dane:
     df = pd.DataFrame(dane)
     st.dataframe(df, use_container_width=True)
 else:
-    st.info("Baza jest pusta.")
+    st.info("Baza jest pusta lub brak połączenia.")
 
 # --- SIDEBAR (DODAWANIE) ---
 st.sidebar.header("Dodaj nową książkę")
@@ -104,6 +110,7 @@ with col3:
     if st.button("Aktualizuj") and wybrana:
         try:
             cell = arkusz.find(wybrana)
+            # Uwaga: update_cell(r, c) - upewnij się, że status jest w 4 kolumnie w Twoim Excelu
             arkusz.update_cell(cell.row, 4, status)
             st.success("Zaktualizowano!")
             st.cache_data.clear()
